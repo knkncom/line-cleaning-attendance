@@ -96,9 +96,9 @@ function doPost(e) {
     // セルの配置（中央揃え）
     cell.setHorizontalAlignment('center');
 
-    // マウスホバーで確認できるメモを付与
+    // マウスホバーで確認できるメモを付与（LINEユーザーIDは一切含めず、社員名と本文のみ）
     const nowStr = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm');
-    cell.setNote(`【自動取込】${nowStr}\n申告者: ${payload.displayName}\n本文: ${payload.rawText}`);
+    cell.setNote(`【自動取込】${nowStr}\n社員: ${employeeName}\n本文: ${payload.rawText}`);
 
     // 9. 監査ログに追記
     logImport(ss, payload, employeeName, `行${rowIndex} 列${colIndex} を「${previousValue}」から「${symbol}」へ更新`);
@@ -235,14 +235,15 @@ function convertStatusToSymbol(status, rawText) {
 
 /**
  * LINE紐付けシートを取得（なければ自動作成し、表の社員名を初期投入）
+ * ※ プライバシー配慮のため、LINEユーザーIDはシートに含めず「LINE表示名」のみで管理
  */
 function getOrCreateMappingSheet(ss, mainSheet) {
   const SHEET_NAME = 'LINE紐付け';
   let sheet = ss.getSheetByName(SHEET_NAME);
   if (!sheet) {
     sheet = ss.insertSheet(SHEET_NAME);
-    sheet.appendRow(['社員名(表のヘッダー)', 'LINE表示名(ニックネーム)', 'LINEユーザーID', '備考']);
-    sheet.getRange('A1:D1').setBackground('#0b5394').setFontColor('#ffffff').setFontWeight('bold');
+    sheet.appendRow(['社員名(表のヘッダー)', 'LINE表示名(ニックネーム)', '備考']);
+    sheet.getRange('A1:C1').setBackground('#0b5394').setFontColor('#ffffff').setFontWeight('bold');
     sheet.setFrozenRows(1);
 
     // メインシートの1行目にある社員名を初期行として登録
@@ -252,7 +253,7 @@ function getOrCreateMappingSheet(ss, mainSheet) {
       for (const name of headers) {
         const trimmed = String(name).trim();
         if (trimmed) {
-          sheet.appendRow([trimmed, trimmed, '', '']);
+          sheet.appendRow([trimmed, trimmed, '']);
         }
       }
     }
@@ -261,20 +262,16 @@ function getOrCreateMappingSheet(ss, mainSheet) {
 }
 
 /**
- * 投稿者（LINE表示名 / User ID）から社員名（苗字）を解決
+ * 投稿者（LINE表示名）から社員名（苗字）を解決
  */
-function resolveEmployee(mappingSheet, mainSheet, userId, displayName) {
+function resolveEmployee(mappingSheet, mainSheet, _userId, displayName) {
   const mapData = mappingSheet.getDataRange().getValues();
 
-  // 1. LINE紐付けシートから検索 (User ID優先、次に表示名一致)
+  // 1. LINE紐付けシートから検索 (表示名一致)
   for (let i = 1; i < mapData.length; i++) {
     const empName = String(mapData[i][0]).trim();
     const lineName = String(mapData[i][1]).trim();
-    const mapUserId = String(mapData[i][2]).trim();
 
-    if (userId && mapUserId && mapUserId === userId) {
-      return empName;
-    }
     if (displayName && lineName && lineName === displayName) {
       return empName;
     }
@@ -290,8 +287,8 @@ function resolveEmployee(mappingSheet, mainSheet, userId, displayName) {
       if (!empName) continue;
 
       if (displayName && displayName.includes(empName)) {
-        // 次回以降のためにマスタへ自動学習追記
-        mappingSheet.appendRow([empName, displayName, userId || '', '自動学習紐付け']);
+        // 次回以降のためにマスタへ自動学習追記（LINEユーザーIDは記録しない）
+        mappingSheet.appendRow([empName, displayName, '自動学習紐付け']);
         return empName;
       }
     }
@@ -301,31 +298,12 @@ function resolveEmployee(mappingSheet, mainSheet, userId, displayName) {
 }
 
 /**
- * 取込ログシートへ記録
+ * 監査ログ記録
+ * ※ シートを汚さないよう、スプレッドシートへのタブ追加は行わず、GAS内部のLoggerにのみ記録
  */
-function logImport(ss, payload, employee, details) {
-  try {
-    const SHEET_NAME = '取込ログ';
-    let sheet = ss.getSheetByName(SHEET_NAME);
-    if (!sheet) {
-      sheet = ss.insertSheet(SHEET_NAME);
-      sheet.appendRow(['実行日時', '対象日', '社員名', '判定状態', 'LINE表示名', '申告本文', '処理詳細']);
-      sheet.getRange('A1:G1').setBackground('#434343').setFontColor('#ffffff').setFontWeight('bold');
-      sheet.setFrozenRows(1);
-    }
-    const nowStr = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
-    sheet.appendRow([
-      nowStr,
-      payload.targetDate,
-      employee,
-      payload.status,
-      payload.displayName,
-      payload.rawText,
-      details
-    ]);
-  } catch (_e) {
-    // ログ記録の失敗はメイン処理を止めない
-  }
+function logImport(_ss, payload, employee, details) {
+  const nowStr = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+  Logger.log(`[Import] ${nowStr} | 対象日: ${payload.targetDate} | 社員: ${employee} | 状態: ${payload.status} | 表示名: ${payload.displayName} | 詳細: ${details}`);
 }
 
 /**
