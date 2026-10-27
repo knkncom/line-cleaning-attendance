@@ -92,7 +92,7 @@ function doPost(e) {
     const cell = mainSheet.getRange(rowIndex, colIndex);
     const previousValue = cell.getValue();
     cell.setValue(symbol);
-    
+
     // セルの配置（中央揃え）
     cell.setHorizontalAlignment('center');
 
@@ -204,6 +204,7 @@ function findEmployeeColumn(sheet, employeeName) {
   }
   return -1;
 }
+
 
 /**
  * 出欠状態をスプレッドシートの記号に変換
