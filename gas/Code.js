@@ -207,6 +207,11 @@ function findEmployeeColumn(sheet, employeeName) {
 
 /**
  * 出欠状態をスプレッドシートの記号に変換
+ * ルール:
+ * - 8:45前の出席申告 → 「◯」
+ * - 欠席申告 → 「✕」
+ * - 遅刻（8:45以降の投稿含む） → 「✕」（欠席扱い）
+ * - 出張 → 「出張」
  */
 function convertStatusToSymbol(status, rawText) {
   const text = rawText || '';
@@ -219,11 +224,11 @@ function convertStatusToSymbol(status, rawText) {
     case '欠席':
       return '✕';
     case '遅刻':
-      return '遅刻';
+      return '✕'; // 8:45以降の遅刻は欠席(✕)扱い
     case '要確認':
       return '要確認';
     default:
-      return '◯';
+      return '✕';
   }
 }
 
@@ -328,4 +333,87 @@ function logImport(ss, payload, employee, details) {
 function jsonResponse(obj, statusCode) {
   return ContentService.createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * ==============================================================================
+ * 【定時バッチ】8:45 までに申告がなかったメンバーを自動で「✕（欠席）」にする関数
+ * 
+ * 使い方:
+ * - Apps Script の左メニュー「トリガー（時計アイコン）」を開きます。
+ * - 「トリガーを追加」をクリック:
+ *     - 実行する関数: fillAbsenceForUnreported
+ *     - イベントのソース: 時間主導型
+ *     - タイプ: 日ベースのタイマー
+ *     - 時刻: 午前8時〜9時（または分ベースタイマー等）
+ * - これにより、8:45時点で空欄のままのメンバーが自動的に「✕」になります。
+ * ==============================================================================
+ */
+function fillAbsenceForUnreported() {
+  const now = new Date();
+  const dayOfWeek = now.getDay();
+
+  // 土曜日(6)・日曜日(0)はスキップ
+  if (dayOfWeek === 0 || dayOfWeek === 6) {
+    Logger.log('本日は土日のため自動欠席処理をスキップします');
+    return;
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const mainSheet = findAttendanceMatrixSheet(ss);
+  if (!mainSheet) return;
+
+  const targetMonth = now.getMonth() + 1;
+  const targetDay = now.getDate();
+  const targetFormatted = `${targetMonth}/${targetDay}`;
+
+  const lastRow = mainSheet.getLastRow();
+  const lastCol = mainSheet.getLastColumn();
+  if (lastRow < 2 || lastCol < 3) return;
+
+  // 今日の行を検索
+  const dateValues = mainSheet.getRange(1, 1, lastRow, 1).getValues();
+  let todayRowIndex = -1;
+
+  for (let i = 1; i < dateValues.length; i++) {
+    const val = dateValues[i][0];
+    if (!val) continue;
+
+    if (val instanceof Date) {
+      if (val.getMonth() + 1 === targetMonth && val.getDate() === targetDay) {
+        todayRowIndex = i + 1;
+        break;
+      }
+    }
+    const strVal = String(val).trim();
+    if (strVal === targetFormatted || strVal.endsWith(`/${targetDay}`)) {
+      todayRowIndex = i + 1;
+      break;
+    }
+  }
+
+  if (todayRowIndex === -1) {
+    Logger.log(`本日の日付 (${targetFormatted}) の行が見つかりません`);
+    return;
+  }
+
+  // 3列目以降の各社員セルを走査
+  const todayRowRange = mainSheet.getRange(todayRowIndex, 3, 1, lastCol - 2);
+  const rowValues = todayRowRange.getValues()[0];
+  const headers = mainSheet.getRange(1, 3, 1, lastCol - 2).getValues()[0];
+
+  let filledCount = 0;
+  for (let c = 0; c < rowValues.length; c++) {
+    const currentVal = String(rowValues[c] || '').trim();
+    // 空欄の場合のみ「✕」を記入
+    if (currentVal === '') {
+      const cell = mainSheet.getRange(todayRowIndex, c + 3);
+      cell.setValue('✕').setHorizontalAlignment('center');
+      cell.setNote('【自動判定】8:45までに申告がなかったため欠席');
+      filledCount++;
+      Logger.log(`未申告メンバー「${headers[c]}」を欠席(✕)に設定`);
+    }
+  }
+
+  Logger.log(`自動欠席処理完了: ${filledCount} 件の未申告者を欠席(✕)にしました`);
 }

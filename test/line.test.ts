@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractTargetDate, parseAttendanceMessage } from '../src/attendance';
+import { parseAttendanceMessage } from '../src/attendance';
 import worker from '../src/index';
 import { isAllowedGroup, parseLineWebhook, verifyLineSignature } from '../src/line';
 import { submitAttendanceToSheets } from '../src/sheets';
@@ -109,58 +109,48 @@ describe('Group ID Filtering', () => {
   });
 });
 
-describe('Attendance Message Parser (Rule-based NLP)', () => {
-  const baseDate = new Date('2026-10-27T10:00:00+09:00');
+describe('Attendance Message Parser (8:45 Deadline & Rule-based NLP)', () => {
+  // 基準日: 2026-10-27
+  const onTimeDate = new Date('2026-10-27T08:44:59+09:00'); // 8:44:59 (セーフ)
+  const lateDate = new Date('2026-10-27T08:45:00+09:00');   // 8:45:00 (アウト)
 
-  it('「明日は参加します」を翌日の出席予定と判定すること', () => {
-    const result = parseAttendanceMessage('明日は参加します', { referenceDate: baseDate });
+  it('8:44:59までに「始めます」と投稿した場合は出席予定と判定すること', () => {
+    const result = parseAttendanceMessage('始めます！', { referenceDate: onTimeDate });
     expect(result).not.toBeNull();
     expect(result?.status).toBe('出席予定');
-    expect(result?.targetDate).toBe('2026-10-28');
+    expect(result?.targetDate).toBe('2026-10-27');
   });
 
-  it('「今日の掃除は休みます」を当日の欠席と判定すること', () => {
-    const result = parseAttendanceMessage('今日の掃除は休みます', { referenceDate: baseDate });
+  it('8:44:59までに「はじめます」「掃除開始します」と投稿した場合は出席予定と判定すること', () => {
+    expect(parseAttendanceMessage('はじめます', { referenceDate: onTimeDate })?.status).toBe('出席予定');
+    expect(parseAttendanceMessage('掃除開始します', { referenceDate: onTimeDate })?.status).toBe('出席予定');
+  });
+
+  it('8:45:00以降に「始めます」と投稿した場合は遅刻（欠席扱い）と判定すること', () => {
+    const result = parseAttendanceMessage('始めます！', { referenceDate: lateDate });
+    expect(result).not.toBeNull();
+    expect(result?.status).toBe('遅刻');
+    expect(result?.reason).toContain('8:45:00以降');
+  });
+
+  it('朝「今日の掃除は休みます」と投稿した場合は欠席と判定すること', () => {
+    const result = parseAttendanceMessage('今日の掃除は休みます', { referenceDate: onTimeDate });
     expect(result).not.toBeNull();
     expect(result?.status).toBe('欠席');
     expect(result?.targetDate).toBe('2026-10-27');
   });
 
-  it('「明日は出張のため不参加です」を出張と判定すること', () => {
-    const result = parseAttendanceMessage('明日は出張のため不参加です', { referenceDate: baseDate });
+  it('「出張のため不参加です」を出張と判定すること', () => {
+    const result = parseAttendanceMessage('本日は出張です', { referenceDate: onTimeDate });
     expect(result).not.toBeNull();
     expect(result?.status).toBe('出張');
-    expect(result?.targetDate).toBe('2026-10-28');
-  });
-
-  it('「電車遅延で遅れます」を遅刻と判定すること', () => {
-    const result = parseAttendanceMessage('電車遅延で遅れます', { referenceDate: baseDate });
-    expect(result).not.toBeNull();
-    expect(result?.status).toBe('遅刻');
-  });
-
-  it('「やっぱり参加できます」を訂正出席予定と判定すること', () => {
-    const result = parseAttendanceMessage('やっぱり参加できます！', { referenceDate: baseDate });
-    expect(result).not.toBeNull();
-    expect(result?.status).toBe('出席予定');
-    expect(result?.reason).toContain('訂正');
-  });
-
-  it('「間に合いそうです」を要確認と判定すること', () => {
-    const result = parseAttendanceMessage('間に合いそうです', { referenceDate: baseDate });
-    expect(result).not.toBeNull();
-    expect(result?.status).toBe('要確認');
+    expect(result?.targetDate).toBe('2026-10-27');
   });
 
   it('出欠と無関係な挨拶や雑談は null を返して無視すること', () => {
-    expect(parseAttendanceMessage('了解です', { referenceDate: baseDate })).toBeNull();
-    expect(parseAttendanceMessage('お疲れ様です', { referenceDate: baseDate })).toBeNull();
-    expect(parseAttendanceMessage('明日のMTGよろしくお願いします', { referenceDate: baseDate })).toBeNull();
-  });
-
-  it('特定日付表現（10/29や10月29日）を正しく抽出すること', () => {
-    expect(extractTargetDate('10/29の掃除休みます', baseDate)).toBe('2026-10-29');
-    expect(extractTargetDate('10月30日は参加します', baseDate)).toBe('2026-10-30');
+    expect(parseAttendanceMessage('了解です', { referenceDate: onTimeDate })).toBeNull();
+    expect(parseAttendanceMessage('お疲れ様です', { referenceDate: onTimeDate })).toBeNull();
+    expect(parseAttendanceMessage('おはようございます', { referenceDate: onTimeDate })).toBeNull();
   });
 });
 

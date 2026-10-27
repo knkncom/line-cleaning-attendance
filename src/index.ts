@@ -122,8 +122,9 @@ async function handleWebhook(
     ) {
       const text = event.message.text;
 
-      // 出欠判定（出欠に関係ない雑談等は null が返る）
-      const parsed = parseAttendanceMessage(text);
+      // 投稿時刻に基づいた出欠判定（8:45:00締切）
+      const postDate = new Date(event.timestamp);
+      const parsed = parseAttendanceMessage(text, { referenceDate: postDate });
       if (!parsed) {
         // 出欠申告ではない通常のメッセージは処理不要
         continue;
