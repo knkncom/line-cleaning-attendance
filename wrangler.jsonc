@@ -1,0 +1,33 @@
+/**
+ * Cloudflare Workers Configuration for LINE Cleaning Attendance
+ * 
+ * 【セキュリティ注意】
+ * APIキー、シークレット、IDなどの機密情報は絶対にこのファイルに直書きしないでください。
+ * シークレットはローカルでは `.dev.vars`、本番では `wrangler secret put <NAME>` で管理します。
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "line-cleaning-attendance",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-11-01",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  // 公開しても安全な環境変数のみ定義
+  "vars": {
+    "TZ": "Asia/Tokyo"
+  }
+  // 後続フェーズ（Phase 2: D1 Database）のバインディング例
+  // "d1_databases": [
+  //   {
+  //     "binding": "DB",
+  //     "database_name": "line-cleaning-db",
+  //     "database_id": "<D1_DATABASE_ID>"
+  //   }
+  // ],
+  // 後続フェーズ（Phase 3: Workers Cron Trigger）の設定例
+  // 毎朝7:30 JST (22:30 UTC 前日)
+  // "triggers": {
+  //   "crons": ["30 22 * * *"]
+  // }
+}

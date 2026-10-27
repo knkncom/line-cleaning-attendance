@@ -1,0 +1,30 @@
+# ==============================================================================
+# ローカル開発用環境変数サンプルファイル (.dev.vars.example)
+#
+# 【重要・セキュリティ注意事項】
+# このファイルは公開リポジトリ用のテンプレートです。
+# 実際の設定値は `.dev.vars` にコピーして入力してください。
+# `.dev.vars` は .gitignore に含まれており、絶対にコミットしないでください。
+# 本番環境（Cloudflare Workers）では `npx wrangler secret put <変数名>` を使用して設定します。
+# ==============================================================================
+
+# LINE Messaging API の Channel Secret（必須: Webhook署名検証用）
+# LINE Developers コンソール > チャネル基本設定 > Channel secret
+LINE_CHANNEL_SECRET=your_line_channel_secret_here
+
+# 許可するLINEグループID（任意だが推奨: 許可したグループ外からのメッセージを無視）
+# 例: c1234567890abcdef...
+ALLOWED_LINE_GROUP_ID=
+
+# 論理タイムゾーン（デフォルト: Asia/Tokyo）
+TZ=Asia/Tokyo
+
+# --- 後続フェーズ（Phase 4: Google Sheets 連携用予定） ---
+# 出欠記録先スプレッドシートID (URLの /d/〇〇/edit の〇〇部分)
+SHEET_ID=your_google_sheet_id_here
+
+# Google サービスアカウントメールアドレス
+GOOGLE_SERVICE_ACCOUNT_EMAIL=your-service-account@project.iam.gserviceaccount.com
+
+# Google サービスアカウント秘密鍵（改行を含む文字列）
+GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC...\n-----END PRIVATE KEY-----\n"

@@ -1,0 +1,26 @@
+# Node dependencies
+node_modules/
+package-lock.json
+
+# Cloudflare Wrangler
+.wrangler/
+dist/
+
+# Environment and Secrets (CRITICAL: Do NOT commit!)
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+.env
+.env.*
+!.env.example
+*.local
+service-account*.json
+credentials*.json
+
+# OS and Editor
+.DS_Store
+Thumbs.db
+*.swp
+*.log
+.vscode/
+.idea/
