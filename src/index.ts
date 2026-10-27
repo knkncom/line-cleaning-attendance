@@ -1,14 +1,18 @@
 /**
  * LINE朝清掃 出欠自動集計システム - メインエントリーポイント (src/index.ts)
  * 
- * Cloudflare Workers (TypeScript)
- * - fetch: LINE Webhook 受信およびヘルスチェック
- * - scheduled: 朝の定時集計 Cron Trigger (Phase 3/4)
+ * Cloudflare Workers (TypeScript) - データベース不要のダイレクト連携版
+ * 
+ * - LINE Webhook 受信
+ * - HMAC-SHA256 署名検証 & グループID検証
+ * - メッセージ本文から出欠判定（出席予定/欠席/遅刻/要確認）
+ * - Googleスプレッドシート（GAS Webアプリ）へリアルタイム直接反映
  */
 
-import { isAllowedGroup, logEventSummary, parseLineWebhook, verifyLineSignature } from './line';
-import { D1AttendanceRepository } from './repository';
-import { Env } from './types';
+import { parseAttendanceMessage } from './attendance';
+import { getLineUserProfile, isAllowedGroup, logEventSummary, parseLineWebhook, verifyLineSignature } from './line';
+import { submitAttendanceToSheets } from './sheets';
+import { AttendanceSubmission, Env, LineWebhookEvent } from './types';
 
 export default {
   /**
@@ -23,6 +27,7 @@ export default {
         JSON.stringify({
           status: 'ok',
           service: 'line-cleaning-attendance',
+          mode: 'direct-to-sheets',
           time: new Date().toISOString(),
         }),
         {
@@ -39,16 +44,6 @@ export default {
 
     // その他のパス・メソッドは 404
     return new Response('Not Found', { status: 404 });
-  },
-
-  /**
-   * Cron Trigger 定時実行ハンドラー (Phase 3/4)
-   */
-  async scheduled(_event: ScheduledEvent, env: Env, _ctx: ExecutionContext): Promise<void> {
-    console.log('[Cron] 出欠集計 Cron Trigger が起動しました');
-    const tz = env.TZ || 'Asia/Tokyo';
-    console.log(`[Cron] タイムゾーン: ${tz}`);
-    // Phase 3 & Phase 4 にて出欠集計・スプレッドシート書き込みを実行
   },
 };
 
@@ -102,52 +97,86 @@ async function handleWebhook(
     });
   }
 
-  // 6. 空イベント配列（LINE Developers コンソールの「検証」リクエスト）の処理
+  // 6. 空イベント配列（LINE Developers コンソールの接続検証）の処理
   if (payload.events.length === 0) {
     console.log('[Webhook] LINE Developers コンソールからの接続検証リクエストを受信しました (OK)');
     return new Response('OK', { status: 200 });
   }
 
   // 7. 各イベントの処理
-  const repository = new D1AttendanceRepository(env.DB);
-
   for (const event of payload.events) {
-    // 監査・デバッグ用最小限ログ（個人情報・本文は出力しない）
+    // 監査・デバッグ用最小限ログ（個人情報・本文はログ出力しない）
     logEventSummary(event);
 
-    // 送信元グループの検証（許可グループIDが設定されている場合）
+    // 送信元グループの検証
     if (!isAllowedGroup(event, env.ALLOWED_LINE_GROUP_ID)) {
-      console.log(`[Filter] 許可されていないグループ/ソースからのイベントのためスキップ (eventId: ${event.webhookEventId})`);
+      console.log(`[Filter] 許可されていないグループからのイベントのためスキップ (eventId: ${event.webhookEventId})`);
       continue;
     }
 
-    // 重複配信・再送イベントの確認
-    if (event.deliveryContext?.isRedelivery) {
-      console.log(`[Webhook] 再送イベントを検知 (eventId: ${event.webhookEventId})`);
-    }
+    // テキストメッセージイベントの処理
+    if (
+      event.type === 'message' &&
+      event.message?.type === 'text' &&
+      typeof event.message.text === 'string'
+    ) {
+      const text = event.message.text;
 
-    // メッセージイベントの処理フック（バックグラウンドで安全に処理）
-    if (event.type === 'message' && event.message?.type === 'text') {
-      // D1が利用可能な場合は非同期で保存
-      if (env.DB) {
-        ctx.waitUntil(
-          repository
-            .hasEventBeenProcessed(event.webhookEventId)
-            .then(async (alreadyProcessed) => {
-              if (alreadyProcessed) {
-                console.log(`[Repository] 処理済みイベントのため保存をスキップ: ${event.webhookEventId}`);
-                return;
-              }
-              await repository.saveMessageEvent(event);
-            })
-            .catch((err) => {
-              console.error('[Repository] メッセージ保存エラー:', err);
-            })
-        );
+      // 出欠判定（出欠に関係ない雑談等は null が返る）
+      const parsed = parseAttendanceMessage(text);
+      if (!parsed) {
+        // 出欠申告ではない通常のメッセージは処理不要
+        continue;
       }
+
+      console.log(
+        `[Attendance Detected] status=${parsed.status}, targetDate=${parsed.targetDate}, reason=${parsed.reason}`
+      );
+
+      // バックグラウンドで非同期にスプレッドシートへ反映（LINEの応答タイムアウトを防止）
+      ctx.waitUntil(processAttendanceEvent(env, event, text, parsed.status, parsed.targetDate));
     }
   }
 
-  // LINEサーバーに対して迅速に 200 OK を返却
+  // LINEサーバーへ迅速に 200 OK を返却
   return new Response('OK', { status: 200 });
+}
+
+/**
+ * 出欠申告イベントを処理し、Googleスプレッドシートへ送信します。
+ */
+async function processAttendanceEvent(
+  env: Env,
+  event: LineWebhookEvent,
+  rawText: string,
+  status: AttendanceSubmission['status'],
+  targetDate: string
+): Promise<void> {
+  const userId = event.source.userId || 'unknown_user';
+  const groupId = event.source.groupId || event.source.roomId;
+
+  // LINE表示名の取得（アクセストークンがある場合）
+  let displayName = userId.length > 8 ? `User_${userId.slice(-6)}` : userId;
+  if (env.LINE_CHANNEL_ACCESS_TOKEN && event.source.userId) {
+    const profile = await getLineUserProfile(
+      env.LINE_CHANNEL_ACCESS_TOKEN,
+      event.source.userId,
+      groupId
+    );
+    if (profile?.displayName) {
+      displayName = profile.displayName;
+    }
+  }
+
+  const submission: AttendanceSubmission = {
+    targetDate,
+    status,
+    userId,
+    displayName,
+    rawText,
+    eventId: event.webhookEventId,
+    timestamp: event.timestamp,
+  };
+
+  await submitAttendanceToSheets(env, submission);
 }
