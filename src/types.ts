@@ -99,7 +99,7 @@ export interface LineUserProfile {
 // -------------------------------------------------------------
 // 出欠集計・スプレッドシート連携用型定義
 // -------------------------------------------------------------
-export type AttendanceStatus = '出席予定' | '欠席' | '遅刻' | '要確認';
+export type AttendanceStatus = '出席予定' | '欠席' | '遅刻' | '出張' | '要確認';
 
 export interface AttendanceParsedResult {
   targetDate: string; // YYYY-MM-DD

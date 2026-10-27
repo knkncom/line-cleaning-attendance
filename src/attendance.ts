@@ -120,25 +120,37 @@ export function parseAttendanceMessage(
     };
   }
 
-  // B. 欠席表現
+  // B. 出張表現（既存スプレッドシートの「出張」ステータスに対応）
+  const isBusinessTrip = /(出張|外回り|遠征)/i.test(trimmed);
+
+  // C. 欠席表現
   // 例: 「休みます」「お休みします」「欠席します」「参加できません」「行けません」
   const isAbsence = /(休みます|休ませて|欠席|お休み|休業|不参加|参加でき(?:ませ|ない)|行け(?:ませ|ない)|不都合)/i.test(
     trimmed
   );
 
-  // C. 遅刻表現
+  // D. 遅刻表現
   // 例: 「遅れます」「遅刻します」「電車遅延のため遅参」「少し遅れそう」
   const isLate = /(遅れ(?:ます|そう)|遅刻|遅参|遅延.*遅れ)/i.test(trimmed);
 
-  // D. 出席予定表現
+  // E. 出席予定表現
   // 例: 「参加します」「出席します」「行きます」「出られます」「向かいます」
   const isAttending = /(参加(?:します|予定)|出席|行きます|向かい(?:ます|中)|出られます)/i.test(trimmed);
 
-  // E. 曖昧・要確認表現
+  // F. 曖昧・要確認表現
   // 例: 「間に合いそう」「微妙です」「掃除どうですか」
   const isAmbiguous = /(間に合(?:う|いそう)|微妙|行けるかも|確認中)/i.test(trimmed);
 
-  // 衝突または判定処理
+  // 判定優先順位
+  if (isBusinessTrip) {
+    return {
+      targetDate: extractTargetDate(trimmed, refDate),
+      status: '出張',
+      confidence: 'high',
+      reason: '出張キーワード検知',
+    };
+  }
+
   if (isAbsence) {
     // 欠席の文脈
     return {

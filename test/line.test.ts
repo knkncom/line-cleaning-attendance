@@ -126,6 +126,13 @@ describe('Attendance Message Parser (Rule-based NLP)', () => {
     expect(result?.targetDate).toBe('2026-10-27');
   });
 
+  it('「明日は出張のため不参加です」を出張と判定すること', () => {
+    const result = parseAttendanceMessage('明日は出張のため不参加です', { referenceDate: baseDate });
+    expect(result).not.toBeNull();
+    expect(result?.status).toBe('出張');
+    expect(result?.targetDate).toBe('2026-10-28');
+  });
+
   it('「電車遅延で遅れます」を遅刻と判定すること', () => {
     const result = parseAttendanceMessage('電車遅延で遅れます', { referenceDate: baseDate });
     expect(result).not.toBeNull();
