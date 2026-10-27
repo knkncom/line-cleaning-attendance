@@ -126,8 +126,16 @@ describe('Attendance Message Parser (8:45 Deadline & Rule-based NLP)', () => {
     expect(parseAttendanceMessage('掃除開始します', { referenceDate: onTimeDate })?.status).toBe('出席予定');
   });
 
-  it('8:45:00以降に「始めます」と投稿した場合は遅刻（欠席扱い）と判定すること', () => {
+  it('検証モード（デフォルト）では何時に投稿しても「始めます」が出席予定になること', () => {
+    // 11:40現在でも出席予定になる
     const result = parseAttendanceMessage('始めます！', { referenceDate: lateDate });
+    expect(result).not.toBeNull();
+    expect(result?.status).toBe('出席予定');
+    expect(result?.targetDate).toBe('2026-10-27');
+  });
+
+  it('enforceDeadline: true の場合、8:45:00以降に「始めます」と投稿した場合は遅刻（欠席扱い）と判定すること', () => {
+    const result = parseAttendanceMessage('始めます！', { referenceDate: lateDate, enforceDeadline: true });
     expect(result).not.toBeNull();
     expect(result?.status).toBe('遅刻');
     expect(result?.reason).toContain('8:45:00以降');
