@@ -126,19 +126,18 @@ describe('Attendance Message Parser (8:45 Deadline & Rule-based NLP)', () => {
     expect(parseAttendanceMessage('掃除開始します', { referenceDate: onTimeDate })?.status).toBe('出席予定');
   });
 
-  it('検証モード（デフォルト）では何時に投稿しても「始めます」が出席予定になること', () => {
-    // 11:40現在でも出席予定になる
+  it('8:45:00以降に「始めます」と投稿した場合は遅刻（欠席扱い）と判定すること', () => {
     const result = parseAttendanceMessage('始めます！', { referenceDate: lateDate });
-    expect(result).not.toBeNull();
-    expect(result?.status).toBe('出席予定');
-    expect(result?.targetDate).toBe('2026-10-27');
-  });
-
-  it('enforceDeadline: true の場合、8:45:00以降に「始めます」と投稿した場合は遅刻（欠席扱い）と判定すること', () => {
-    const result = parseAttendanceMessage('始めます！', { referenceDate: lateDate, enforceDeadline: true });
     expect(result).not.toBeNull();
     expect(result?.status).toBe('遅刻');
     expect(result?.reason).toContain('8:45:00以降');
+  });
+
+  it('検証用に enforceDeadline: false を渡した場合は何時に投稿しても「始めます」が出席予定になること', () => {
+    const result = parseAttendanceMessage('始めます！', { referenceDate: lateDate, enforceDeadline: false });
+    expect(result).not.toBeNull();
+    expect(result?.status).toBe('出席予定');
+    expect(result?.targetDate).toBe('2026-10-27');
   });
 
   it('朝「今日の掃除は休みます」と投稿した場合は欠席と判定すること', () => {

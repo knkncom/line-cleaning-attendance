@@ -18,7 +18,7 @@ import { AttendanceParsedResult } from './types';
 export interface ParseAttendanceOptions {
   referenceDate?: Date;    // 判定の基準日時（デフォルト: 現在時刻）
   timeZone?: string;        // タイムゾーン（デフォルト: Asia/Tokyo）
-  enforceDeadline?: boolean; // 8:45締切を適用するか（検証中はデフォルトfalseで時間無制限）
+  enforceDeadline?: boolean; // 8:45締切を適用するか（本番デフォルト: true）
 }
 
 /**
@@ -58,12 +58,11 @@ function getJSTTimeParts(date: Date): { hour: number; minute: number; second: nu
 
 /**
  * 投稿時刻が 8:45:00 JST 以降かどうかを判定
- * 
- * 【検証用】enforce が false の場合は常に false（時刻縛りを無効化）
+ * 8:45:00.000 ちょうどを含むそれ以降は true (遅刻・欠席扱い)
  */
-export function isLatePost(date: Date, enforce = false): boolean {
+export function isLatePost(date: Date, enforce = true): boolean {
   if (!enforce) {
-    return false; // 検証モード: 時刻チェックをスキップ
+    return false; // 検証モード用
   }
 
   const { hour, minute, second } = getJSTTimeParts(date);
@@ -94,7 +93,7 @@ export function parseAttendanceMessage(
 
   const postDate = options.referenceDate ?? new Date();
   const targetDate = getJSTDateString(postDate);
-  const enforceDeadline = options.enforceDeadline ?? false; // 検証中は時刻縛りOFF
+  const enforceDeadline = options.enforceDeadline ?? true; // 本番用: 8:45締切を有効化
   const isAfterDeadline = isLatePost(postDate, enforceDeadline);
 
   // --- パターン判定 ---
