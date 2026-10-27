@@ -28,8 +28,15 @@ export default {
           status: 'ok',
           service: 'line-cleaning-attendance',
           mode: 'direct-to-sheets',
+          config: {
+            LINE_CHANNEL_SECRET: Boolean(env.LINE_CHANNEL_SECRET),
+            SHEETS_WEBHOOK_URL: Boolean(env.SHEETS_WEBHOOK_URL),
+            SHEETS_API_SECRET: Boolean(env.SHEETS_API_SECRET),
+            LINE_CHANNEL_ACCESS_TOKEN: Boolean(env.LINE_CHANNEL_ACCESS_TOKEN),
+            ALLOWED_LINE_GROUP_ID: Boolean(env.ALLOWED_LINE_GROUP_ID),
+          },
           time: new Date().toISOString(),
-        }),
+        }, null, 2),
         {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
@@ -39,7 +46,15 @@ export default {
 
     // LINE Webhook 受信エンドポイント (POST / または POST /webhook)
     if (request.method === 'POST' && (url.pathname === '/' || url.pathname === '/webhook')) {
-      return handleWebhook(request, env, ctx);
+      try {
+        return await handleWebhook(request, env, ctx);
+      } catch (err) {
+        console.error('[Fatal Error] Webhook処理中に予期せぬ例外が発生:', err);
+        return new Response(JSON.stringify({ error: 'Internal Server Exception' }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
     }
 
     // その他のパス・メソッドは 404
