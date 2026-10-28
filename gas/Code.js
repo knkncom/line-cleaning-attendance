@@ -88,9 +88,41 @@ function doPost(e) {
     // 7. 出欠ステータスを記号に変換
     const symbol = convertStatusToSymbol(payload.status, payload.rawText);
 
-    // 8. セルに記号とメモ（申告内容・日時）を書き込み
+    // 8. セルの既存値を確認（事前入力の保護）
     const cell = mainSheet.getRange(rowIndex, colIndex);
-    const previousValue = cell.getValue();
+    const previousValue = String(cell.getValue() || '').trim();
+
+    // 【重要・手動入力の保護】
+    // 事前に「出張」等の予定が手動入力されている場合、上書きせずに既存の値を優先維持する
+    if (previousValue !== '') {
+      // A. 「出張」が入っている場合は無条件で絶対に保護（上書きしない）
+      if (previousValue === '出張' || previousValue.includes('出張')) {
+        Logger.log(`[Protect] ${employeeName} は事前に入力された「${previousValue}」があるため上書きをスキップしました`);
+        return jsonResponse({
+          success: true,
+          action: 'skipped_preserved',
+          message: `事前に入力された「${previousValue}」を維持しました`,
+          employeeName: employeeName,
+          targetDate: payload.targetDate,
+          symbol: previousValue
+        });
+      }
+
+      // B. 既に値があり、今回の申告が欠席(✕)や遅刻(✕)の場合は、事前入力を優先して上書きしない
+      if (symbol === '✕') {
+        Logger.log(`[Protect] ${employeeName} は既に「${previousValue}」が入っているため欠席による上書きをスキップしました`);
+        return jsonResponse({
+          success: true,
+          action: 'skipped_preserved',
+          message: `既存の「${previousValue}」を優先し、欠席による上書きをスキップしました`,
+          employeeName: employeeName,
+          targetDate: payload.targetDate,
+          symbol: previousValue
+        });
+      }
+    }
+
+    // セルに記号とメモ（申告内容・日時）を書き込み
     cell.setValue(symbol);
 
     // セルの配置（中央揃え）
