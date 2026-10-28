@@ -262,23 +262,60 @@ function getOrCreateMappingSheet(ss, mainSheet) {
 }
 
 /**
- * 投稿者（LINE表示名）から社員名（苗字）を解決
+ * 文字列の正規化（全角半角スペース・特殊記号の除去、小文字化）
+ */
+function normalizeString(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/[\s\u3000\t\r\n]/g, '') // 全角・半角スペースと改行の除去
+    .toLowerCase();
+}
+
+/**
+ * 苗字のひらがな読み対応辞書（未登録のひらがなニックネームでも自動判定可能）
+ */
+const EMPLOYEE_READINGS = {
+  '西村': ['にしむら', 'nishimura'],
+  '乾': ['いぬい', 'inui'],
+  '銭花': ['ぜにはな', 'zenihana'],
+  '光本': ['みつもと', 'mitsumoto'],
+  '吉田': ['よしだ', 'yoshida'],
+  '菱沼': ['ひしぬま', 'hishinuma']
+};
+
+/**
+ * 投稿者（LINE表示名）から社員名（苗字）を柔軟に解決
  */
 function resolveEmployee(mappingSheet, mainSheet, _userId, displayName) {
+  if (!displayName || String(displayName).trim() === '') {
+    return null;
+  }
+
+  const rawDisplay = String(displayName).trim();
+  const normDisplay = normalizeString(rawDisplay);
+
   const mapData = mappingSheet.getDataRange().getValues();
 
-  // 1. LINE紐付けシートから検索 (表示名一致)
+  // 1. LINE紐付けシートから検索 (完全一致 または スペース除去正規化一致)
   for (let i = 1; i < mapData.length; i++) {
     const empName = String(mapData[i][0]).trim();
     const lineName = String(mapData[i][1]).trim();
+    const normLine = normalizeString(lineName);
 
-    if (displayName && lineName && lineName === displayName) {
+    if (!lineName) continue;
+
+    // 完全一致または正規化一致、あるいは部分一致
+    if (
+      rawDisplay === lineName ||
+      normDisplay === normLine ||
+      (normLine.length >= 2 && normDisplay.includes(normLine)) ||
+      (normDisplay.length >= 2 && normLine.includes(normDisplay))
+    ) {
       return empName;
     }
   }
 
-  // 2. メインシートの1行目にある社員名（苗字）が、LINE表示名に含まれているか部分一致検索
-  // 例: LINE名が「西村 健介」や「にしむら」で、シートヘッダーが「西村」の場合
+  // 2. メインシートの1行目にある社員名（苗字・漢字）との部分一致照合
   const lastCol = mainSheet.getLastColumn();
   if (lastCol >= 3) {
     const headers = mainSheet.getRange(1, 3, 1, lastCol - 2).getValues()[0];
@@ -286,10 +323,23 @@ function resolveEmployee(mappingSheet, mainSheet, _userId, displayName) {
       const empName = String(name).trim();
       if (!empName) continue;
 
-      if (displayName && displayName.includes(empName)) {
-        // 次回以降のためにマスタへ自動学習追記（LINEユーザーIDは記録しない）
-        mappingSheet.appendRow([empName, displayName, '自動学習紐付け']);
+      const normEmp = normalizeString(empName);
+
+      // A. 漢字苗字が含まれている場合（例: 「西村健亮」「吉田 大輝」）
+      if (normDisplay.includes(normEmp)) {
+        // 次回以降のためにマスタへ自動追記
+        mappingSheet.appendRow([empName, rawDisplay, '自動学習紐付け(漢字)']);
         return empName;
+      }
+
+      // B. ひらがな・ローマ字の読み辞書と一致する場合（例: 「ぜにはな」→「銭花」）
+      const readings = EMPLOYEE_READINGS[empName] || [];
+      for (const reading of readings) {
+        if (normDisplay.includes(reading)) {
+          // 次回以降のためにマスタへ自動追記
+          mappingSheet.appendRow([empName, rawDisplay, '自動学習紐付け(ひらがな)']);
+          return empName;
+        }
       }
     }
   }
